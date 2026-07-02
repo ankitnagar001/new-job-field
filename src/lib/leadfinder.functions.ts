@@ -128,10 +128,8 @@ function queryVariants(businessType: string): string[] {
 }
 
 async function searchOnePage(
-
   textQuery: string,
   pageToken: string | undefined,
-  lovableKey: string,
   mapsKey: string,
 ) {
   const body: Record<string, unknown> = { textQuery, pageSize: 20 };
@@ -300,81 +298,49 @@ export const generateWhatsAppMessage = createServerFn({ method: "POST" })
     };
   })
   .handler(async ({ data }) => {
-    const LOVABLE_API_KEY = requireEnv("LOVABLE_API_KEY");
-
     const resolved =
       data.language === "auto" ? pickLanguage(data.businessType) : data.language;
 
-    const langInstruction =
-      resolved === "hindi"
-        ? "Write the message in natural conversational Hindi (Devanagari script). Warm and respectful tone (use 'aap')."
-        : resolved === "english"
-          ? "Write the message in polite, professional English suitable for an educated business owner."
-          : "Write the message in friendly Hinglish (roman script, natural mix of Hindi + English, the way people actually chat on WhatsApp).";
+    // Generate a template-based message without AI API
+    const message = generateTemplateMessage(data.businessName, data.businessType, data.address, resolved);
 
-    const typeContext = `The recipient runs a "${data.businessType}". Tailor the pitch to what THIS type of business gains from a website:
-- Coaching / institute / academy: online admissions, batch schedule, faculty & result showcase, student enquiries
-- Restaurant / cafe / dhaba / bakery: menu, photos, Google ranking, online orders / table booking
-- Salon / parlour / spa: portfolio gallery, price list, appointment booking
-- Clinic / doctor / dentist / hospital: services, timings, appointment booking, trust
-- Gym / yoga / dance / music classes: batches, plans, trial booking
-- Kirana / grocery / general store: WhatsApp catalog, home delivery orders, monthly ration list
-- Clothing / boutique / saree / footwear / jewellery shop: latest collection gallery, size/price, WhatsApp orders, festive offers
-- Medical / pharmacy: product availability, quick order on WhatsApp, home delivery
-- Mobile / electronics / hardware shop: product catalog with prices, EMI info, enquiry form
-- Hotel / lodge / guest house: rooms, photos, direct booking (save OTA commission)
-- Real estate / property dealer: property listings with photos, enquiry form
-- Auto / car / bike service: services, price list, booking a slot
-- Photographer / event planner: portfolio, packages, booking enquiry
-- Tailor / laundry / printing: services, pickup-delivery booking
-Pick benefits that fit THIS specific business type. Do not use generic points.`;
-
-
-
-    const systemPrompt = `You are a web-design freelancer reaching out to local Indian businesses on WhatsApp. Goal: convince the owner they need a professional website. Rules:
-- 60-90 words, one short paragraph or 2 tiny paragraphs.
-- Personal, respectful, specific to the business — never generic.
-- Mention 1-2 CONCRETE benefits tailored to this business type.
-- End with a soft CTA (a question, or offer to send a free sample/mockup).
-- No markdown. Max 1 emoji. No spammy words ("guaranteed", "100%", "cheapest").
-- Do NOT sign off with a name placeholder like "[Your Name]".`;
-
-    const userPrompt = `Business name: ${data.businessName}
-Business type: ${data.businessType}
-Location: ${data.address}
-
-${typeContext}
-
-${langInstruction}
-
-Write ONLY the message text, ready to paste into WhatsApp. No preface.`;
-
-    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Lovable-API-Key": LOVABLE_API_KEY,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-      }),
-    });
-
-    if (!res.ok) {
-      const text = await res.text();
-      if (res.status === 429) throw new Error("Rate limit — thoda ruk ke try karein.");
-      if (res.status === 402) throw new Error("AI credits khatam — workspace me credits add karein.");
-      throw new Error(`AI failed: ${res.status} ${text.slice(0, 200)}`);
-    }
-
-    const json = (await res.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    const message = json.choices?.[0]?.message?.content?.trim() ?? "";
-    if (!message) throw new Error("AI ne empty response diya");
     return { message, language: resolved };
   });
+
+function generateTemplateMessage(businessName: string, businessType: string, address: string, language: "hinglish" | "hindi" | "english"): string {
+  const benefits = getBusinessBenefits(businessType);
+  
+  if (language === "hindi") {
+    return `नमस्ते ${businessName} जी! मैं आपके ${businessType} की वेबसाइट बनाना चाहता हूं। ${benefits}। क्या मैं आपके लिए एक फ्री सैंपल दिखा सकता हूं？`;
+  } else if (language === "english") {
+    return `Hi ${businessName}! I'd like to build a professional website for your ${businessType}. ${benefits}. Would you like to see a free sample/mockup?`;
+  } else {
+    return `Hi ${businessName} ji! Main aapke ${businessType} ke liye professional website banana chahta hoon. ${benefits}. Kya main aapko ek free sample dikhau?`;
+  }
+}
+
+function getBusinessBenefits(businessType: string): string {
+  const t = businessType.toLowerCase();
+  
+  if (t.includes("coaching") || t.includes("institute") || t.includes("academy") || t.includes("school")) {
+    return "Students ko online admission mil jayegi, batch schedule aur results showcase honge";
+  } else if (t.includes("restaurant") || t.includes("cafe") || t.includes("dhaba") || t.includes("bakery")) {
+    return "Menu photos se Google ranking badhegi, online orders aur table booking hoga";
+  } else if (t.includes("salon") || t.includes("parlour") || t.includes("spa")) {
+    return "Portfolio gallery aur price list se clients aasani se booking karenge";
+  } else if (t.includes("clinic") || t.includes("doctor") || t.includes("dentist") || t.includes("hospital")) {
+    return "Services aur timings ke saath appointment booking aasan ho jayegi";
+  } else if (t.includes("gym") || t.includes("yoga") || t.includes("dance") || t.includes("music")) {
+    return "Batches aur plans ke saath trial booking aasani se hogi";
+  } else if (t.includes("kirana") || t.includes("grocery") || t.includes("general store")) {
+    return "WhatsApp catalog se home delivery orders badhengi";
+  } else if (t.includes("clothing") || t.includes("boutique") || t.includes("saree") || t.includes("jewellery")) {
+    return "Latest collection gallery se WhatsApp orders aur festive offers badhengi";
+  } else if (t.includes("medical") || t.includes("pharmacy")) {
+    return "Product availability aur quick order on WhatsApp se home delivery aasan hogi";
+  } else if (t.includes("mobile") || t.includes("electronics") || t.includes("hardware")) {
+    return "Product catalog with prices aur EMI info se enquiries badhengi";
+  } else {
+    return "Online presence se customers aasani se milein aur business grow karega";
+  }
+}
